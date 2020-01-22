@@ -139,27 +139,86 @@ local function processData(szType, content)
         end
         result.alias = result.alias .. base64Decode(params.remarks, true)
     elseif szType == 'vmess' then
-        local info = luci.jsonc.parse(content)
-        result.type = 'v2ray'
-        result.server = info.add
-        result.server_port = info.port
-        result.tcp_guise = "none"
-        result.transport = info.net
-        result.alter_id = info.aid
-        result.vmess_id = info.id
-        result.alias = info.ps
-        result.ws_host = info.host
-        result.ws_path = info.path
-        result.h2_host = info.host
-        result.h2_path = info.path
-        if not info.security then
-            result.security = "auto"
-        end
-        if info.tls == "tls" or info.tls == "1" then
-            result.tls = "1"
+
+        local info = {}
+        if content:sub(1,1) == "{" then
+            -- JSON format
+            info = luci.jsonc.parse(content)
+            result.type = 'v2ray'
+            result.server = info.add
+            result.server_port = info.port
+            result.tcp_guise = "none"
+            result.transport = info.net
+            result.alter_id = info.aid
+            result.vmess_id = info.id
+            result.alias = info.ps
+            result.ws_host = info.host
+            result.ws_path = info.path
+            result.h2_host = info.host
+            result.h2_path = info.path
+            if not info.security then
+                result.security = "auto"
+            end
+            if info.tls == "tls" or info.tls == "1" then
+                result.tls = "1"
+            else
+                result.tls = "0"
+            end
         else
-            result.tls = "0"
+            -- Non json format
+            local _dat = split(content, "?")
+            local hosts = base64Decode(_dat[1])
+            local algo, pass, host, port = hosts:match("([%w-.]+):([%w-.]+)@([%w-.]+):?([0-9]*)")
+            local params = {}
+            for k, v in pairs(split(_dat[2], '&')) do
+                local t = split(v, '=')
+                params[t[1]] = t[2]
+            end
+
+            result.type = 'v2ray'
+            result.server = host
+            result.server_port = port
+            result.security = algo
+            result.transport = params["network"]
+            result.alter_id = params["aid"]
+            result.vmess_id = pass
+            result.alias = UrlDecode(params["remark"])
+            result.insecure = params["allowInsecure"]
+            result.tcp_guise = "none"
+
+            if params["network"] == "ws" then
+                result.ws_path = params["wsPath"]
+                result.ws_host = host
+            end
+            if params["network"] == "h2" then
+                result.h2_host = host
+                result.h2_path = params["h2Path"]
+            end
+            if params["network"] == "kcp" then
+                result.kcp_enable = "1"
+                result.kcp_guise = "none"
+            end
+
+            if params["uplinkCapacity"] then
+                result.uplink_capacity = params["uplinkCapacity"]
+            end
+            if params["downlinkCapacity"] then
+                result.downlink_capacity = params["downlinkCapacity"]
+            end
+            if params["tls"] == "1" then
+                result.tls = "1"
+                if params["tlsServer"] then
+                    result.tls_host = params["tlsServer"]
+                else
+                    result.tls_host = host
+                end
+            end
+            if params["mux"] == "1" then
+                result.mux = "1"
+                result.concurrency = params["muxConcurrency"]
+            end
         end
+
     elseif szType == "ss" then
         local idx_sp = 0
         local alias = ""
